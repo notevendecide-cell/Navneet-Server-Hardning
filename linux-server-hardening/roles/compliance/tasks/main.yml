@@ -1,0 +1,108 @@
+---
+# Role: compliance
+# Install and run a quick security audit with Lynis
+
+- name: Install Lynis (Ubuntu)
+  apt:
+    name: lynis
+    state: present
+    update_cache: yes
+  when: ansible_facts['os_family'] == 'Debian'
+
+- name: Install Lynis (SUSE)
+  zypper:
+    name: lynis
+    state: present
+  when: ansible_facts['os_family'] == 'Suse'
+
+- name: Create directory for compliance reports
+  file:
+    path: /var/log/compliance
+    state: directory
+    owner: root
+    group: root
+    mode: '0750'
+
+# --- OpenSCAP installation and scan ---
+- name: Install OpenSCAP scanner (Ubuntu)
+  apt:
+    name: openscap-scanner
+    state: present
+    update_cache: yes
+  when: ansible_facts['os_family'] == 'Debian'
+
+- name: Install SCAP Security Guide content (Ubuntu, optional)
+  apt:
+    name: scap-security-guide
+    state: present
+    update_cache: yes
+  when: ansible_facts['os_family'] == 'Debian'
+  failed_when: false
+
+- name: Install OpenSCAP and security guides (SUSE)
+  zypper:
+    name:
+      - openscap-utils
+      - scap-security-guide
+    state: present
+  when: ansible_facts['os_family'] == 'Suse'
+  failed_when: false
+
+- name: Set OpenSCAP candidate datastreams (Ubuntu)
+  set_fact:
+    openscap_candidates:
+      - /usr/share/xml/scap/ssg/content/ssg-ubuntu2204-ds.xml
+  when: ansible_facts['os_family'] == 'Debian'
+
+- name: Set OpenSCAP candidate datastreams (SUSE)
+  set_fact:
+    openscap_candidates:
+      - /usr/share/xml/scap/ssg/content/ssg-opensuse-leap-ds.xml
+      - /usr/share/xml/scap/ssg/content/ssg-opensuse-leap15-ds.xml
+      - /usr/share/xml/scap/ssg/content/ssg-sle15-ds.xml
+  when: ansible_facts['os_family'] == 'Suse'
+
+- name: Detect existing OpenSCAP datastream
+  stat:
+    path: "{{ item }}"
+  loop: "{{ openscap_candidates | default([]) }}"
+  register: oscap_ds_stats
+  when: openscap_candidates is defined
+
+- name: Pick OpenSCAP datastream path
+  set_fact:
+    openscap_ds_path: "{{ (oscap_ds_stats.results | selectattr('stat.exists', 'defined') | selectattr('stat.exists') | map(attribute='item') | list | first) | default('') }}"
+  when: oscap_ds_stats is defined
+
+- name: Run OpenSCAP evaluation (HTML + ARF)
+  command: >-
+    oscap xccdf eval --fetch-remote-resources
+    --profile {{ openscap_profile | default('xccdf_org.ssgproject.content_profile_standard') }}
+    --results-arf /var/log/compliance/openscap_arf.xml
+    --report /var/log/compliance/openscap_report.html
+    {{ openscap_ds_path }}
+  register: oscap_eval
+  changed_when: false
+  failed_when: false
+  when: not ansible_check_mode and (openscap_ds_path | default('') | length > 0)
+
+- name: Note if OpenSCAP content was not found
+  debug:
+    msg: "OpenSCAP content not found; skipped oscap eval. You can install 'scap-security-guide' if available."
+  when: not ansible_check_mode and (openscap_ds_path | default('') | length == 0)
+
+- name: Run Lynis audit (quick)
+  command: lynis audit system --quiet --quick
+  register: lynis_out
+  changed_when: false
+  failed_when: false
+  when: not ansible_check_mode
+
+- name: Save Lynis output
+  copy:
+    dest: /var/log/compliance/lynis_last.txt
+    content: "{{ lynis_out.stdout | default('') }}\n{{ lynis_out.stderr | default('') }}"
+    owner: root
+    group: root
+    mode: '0640'
+  when: not ansible_check_mode

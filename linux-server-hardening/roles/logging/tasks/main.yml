@@ -1,0 +1,85 @@
+---
+# Role: logging
+# Configure auditd, journald, and log rotation
+
+- name: Ensure auditd is installed
+  package:
+    name: auditd
+    state: present
+
+- name: Check if auditd.conf exists
+  stat:
+    path: /etc/audit/auditd.conf
+  register: auditd_conf
+
+- name: Enable and start auditd
+  service:
+    name: auditd
+    state: started
+    enabled: yes
+  when: not ansible_check_mode
+
+- name: Configure auditd retention and priority
+  lineinfile:
+    path: /etc/audit/auditd.conf
+    regexp: '^#?({{ item.key }})\\s*=.*'
+    line: '{{ item.key }} = {{ item.value }}'
+    create: yes
+  loop:
+    - { key: 'max_log_file', value: '50' }
+    - { key: 'max_log_file_action', value: 'rotate' }
+    - { key: 'space_left_action', value: 'email' }
+    - { key: 'admin_space_left_action', value: 'halt' }
+  notify: Restart auditd
+  when: not ansible_check_mode or (auditd_conf.stat.exists | default(false))
+
+- name: Ensure journald persistent storage
+  lineinfile:
+    path: /etc/systemd/journald.conf
+    regexp: '^#?Storage='
+    line: 'Storage=persistent'
+    create: yes
+  notify: Restart journald
+
+- name: Limit journal size and retention
+  lineinfile:
+    path: /etc/systemd/journald.conf
+    regexp: '^#?SystemMaxUse='
+    line: 'SystemMaxUse=500M'
+    create: yes
+  notify: Restart journald
+
+- name: Ensure logrotate is present
+  package:
+    name: logrotate
+    state: present
+
+- name: Configure sudo and audit log rotation
+  copy:
+    dest: /etc/logrotate.d/hardening-extra
+    content: |
+      /var/log/sudo.log {
+          rotate 12
+          monthly
+          missingok
+          notifempty
+          compress
+          delaycompress
+          create 0600 root root
+      }
+      /var/log/audit/*.log {
+          rotate 8
+          weekly
+          missingok
+          compress
+          delaycompress
+          notifempty
+          copytruncate
+      }
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Force logrotate config test
+  command: logrotate --debug /etc/logrotate.conf
+  changed_when: false

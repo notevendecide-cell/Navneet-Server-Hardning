@@ -1,0 +1,64 @@
+---
+# Role: services
+# Disable legacy/unused services and remove insecure packages
+
+- name: Remove insecure network services (Ubuntu)
+  apt:
+    name:
+      - telnet
+      - rsh-client
+      - rsh-redone-client
+      - tftp
+      - xinetd
+      - talk
+      - ftp
+      - vsftpd
+      - rlogin
+      - telnetd
+    state: absent
+    purge: yes
+    autoremove: yes
+  when: ansible_facts['os_family'] == 'Debian'
+
+- name: Remove insecure network services (SUSE)
+  zypper:
+    name:
+      - telnet
+      - rsh
+      - tftp
+      - xinetd
+      - ypbind
+      - vsftpd
+    state: absent
+  when: ansible_facts['os_family'] == 'Suse'
+
+- name: Stop and disable legacy daemons if present
+  service:
+    name: "{{ item }}"
+    state: stopped
+    enabled: no
+  register: svc_stop
+  failed_when: false
+  loop:
+    - telnet
+    - rsh
+    - rlogin
+    - tftp
+    - xinetd
+    - vsftpd
+    - avahi-daemon
+    - cups
+
+- name: Mask unwanted services
+  systemd:
+    name: "{{ item }}"
+    masked: yes
+  loop:
+    - telnet
+    - rsh
+    - rlogin
+    - tftp
+    - xinetd
+    - avahi-daemon
+    - cups
+  failed_when: false

@@ -1,0 +1,83 @@
+---
+# Role: integrity
+# Install and schedule AIDE (file integrity monitoring)
+
+- name: Install AIDE (Ubuntu)
+  apt:
+    name:
+      - aide
+      - aide-common
+    state: present
+    update_cache: yes
+  when: ansible_facts['os_family'] == 'Debian'
+
+- name: Install AIDE (SUSE)
+  zypper:
+    name: aide
+    state: present
+  when: ansible_facts['os_family'] == 'Suse'
+
+- name: Check if AIDE database exists
+  stat:
+    path: /var/lib/aide/aide.db.gz
+  register: aide_db
+
+- name: Initialize AIDE database (Ubuntu wrapper)
+  command: aideinit
+  when: not ansible_check_mode and (not aide_db.stat.exists) and not (skip_aide_init | default(false) | bool)
+  register: aide_init
+  changed_when: true
+  failed_when: false
+
+- name: Initialize AIDE database (generic)
+  command: aide --init
+  when: not ansible_check_mode and (not aide_db.stat.exists) and (aide_init is not defined or (aide_init.rc is defined and aide_init.rc != 0)) and not (skip_aide_init | default(false) | bool)
+  register: aide_init_generic
+  changed_when: true
+  failed_when: false
+
+- name: Copy new AIDE DB into place if generated
+  copy:
+    src: /var/lib/aide/aide.db.new.gz
+    dest: /var/lib/aide/aide.db.gz
+    remote_src: true
+    owner: root
+    group: root
+    mode: '0640'
+  when: not ansible_check_mode and (not aide_db.stat.exists) and not (skip_aide_init | default(false) | bool)
+
+- name: Create AIDE check service
+  copy:
+    dest: /etc/systemd/system/aide-check.service
+    content: |
+      [Unit]
+      Description=AIDE file integrity check
+      After=network-online.target
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/bin/aide --check
+  when: ansible_facts['os_family'] in ['Debian','Suse']
+
+- name: Create AIDE check timer (daily at 03:30)
+  copy:
+    dest: /etc/systemd/system/aide-check.timer
+    content: |
+      [Unit]
+      Description=Daily AIDE file integrity check
+
+      [Timer]
+      OnCalendar=03:30
+      Persistent=true
+
+      [Install]
+      WantedBy=timers.target
+  when: ansible_facts['os_family'] in ['Debian','Suse']
+
+- name: Enable and start AIDE timer
+  systemd:
+    name: aide-check.timer
+    state: started
+    enabled: yes
+    daemon_reload: yes
+  when: not ansible_check_mode

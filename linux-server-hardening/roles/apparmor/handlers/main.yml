@@ -1,0 +1,8 @@
+---
+# Handlers for apparmor role
+
+- name: Reload apparmor
+  service:
+    name: apparmor
+    state: restarted
+  when: not ansible_check_mode

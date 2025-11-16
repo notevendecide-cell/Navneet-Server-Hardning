@@ -1,0 +1,41 @@
+---
+# Role: apparmor
+# Ensure AppArmor is installed and enforcing
+
+- name: Ensure AppArmor packages (Ubuntu)
+  apt:
+    name:
+      - apparmor
+      - apparmor-utils
+    state: present
+    update_cache: yes
+  when: ansible_facts['os_family'] == 'Debian'
+
+- name: Ensure AppArmor packages (SUSE)
+  zypper:
+    name:
+      - apparmor
+      - apparmor-utils
+    state: present
+  when: ansible_facts['os_family'] == 'Suse'
+
+- name: Enable and start AppArmor service
+  service:
+    name: apparmor
+    state: started
+    enabled: yes
+  when: not ansible_check_mode
+
+- name: Enforce all loaded AppArmor profiles (if tool available)
+  command: aa-enforce /etc/apparmor.d/*
+  register: aa_enforce
+  changed_when: false
+  failed_when: false
+  when: not ansible_check_mode
+
+- name: Show AppArmor status (debug)
+  command: aa-status
+  register: aa_status
+  changed_when: false
+  failed_when: false
+

@@ -1,0 +1,14 @@
+---
+# Handlers for logging role
+
+- name: Restart auditd
+  service:
+    name: auditd
+    state: restarted
+  when: not ansible_check_mode
+
+- name: Restart journald
+  service:
+    name: systemd-journald
+    state: restarted
+  when: not ansible_check_mode

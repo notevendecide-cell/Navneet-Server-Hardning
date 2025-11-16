@@ -1,0 +1,69 @@
+---
+# Role: updates
+# Configure automatic security updates
+
+- name: Install unattended-upgrades (Ubuntu)
+  apt:
+    name:
+      - unattended-upgrades
+      - apt-listchanges
+    state: present
+    update_cache: yes
+  when: ansible_facts['os_family'] == 'Debian'
+
+- name: Enable unattended upgrades (Ubuntu)
+  copy:
+    dest: /etc/apt/apt.conf.d/50unattended-upgrades
+    content: |
+      Unattended-Upgrade::Origins-Pattern {
+        "origin=Ubuntu,archive=${distro_codename}-security";
+        "origin=Ubuntu,archive=${distro_codename}-updates";
+      };
+      Unattended-Upgrade::Remove-Unused-Dependencies "true";
+      Unattended-Upgrade::Automatic-Reboot "true";
+      Unattended-Upgrade::Automatic-Reboot-Time "03:00";
+  when: ansible_facts['os_family'] == 'Debian'
+
+- name: Enable periodic APT updates (Ubuntu)
+  copy:
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+  when: ansible_facts['os_family'] == 'Debian'
+
+- name: Create zypper update service (SUSE)
+  copy:
+    dest: /etc/systemd/system/ansible-zypper-update.service
+    content: |
+      [Unit]
+      Description=Apply security patches via zypper
+      After=network-online.target
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/bin/zypper --non-interactive patch --with-update --replacefiles
+  when: ansible_facts['os_family'] == 'Suse'
+
+- name: Create zypper update timer (SUSE)
+  copy:
+    dest: /etc/systemd/system/ansible-zypper-update.timer
+    content: |
+      [Unit]
+      Description=Daily security updates via zypper
+
+      [Timer]
+      OnCalendar=03:00
+      Persistent=true
+
+      [Install]
+      WantedBy=timers.target
+  when: ansible_facts['os_family'] == 'Suse'
+
+- name: Enable and start zypper update timer (SUSE)
+  systemd:
+    name: ansible-zypper-update.timer
+    enabled: yes
+    state: started
+    daemon_reload: yes
+  when: ansible_facts['os_family'] == 'Suse'

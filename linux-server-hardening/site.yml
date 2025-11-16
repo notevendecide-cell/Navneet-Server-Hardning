@@ -1,0 +1,21 @@
+---
+- name: Linux Server Hardening (Ubuntu 22.04 and openSUSE Leap)
+  hosts: all
+  gather_facts: yes
+  become: yes
+  vars:
+    allowed_ssh_ports:
+      - 22
+    extra_allowed_ports: []
+    disable_password_authentication: true
+    lock_root_account: true
+  roles:
+    - role: user_access
+    - role: services
+    - role: firewall
+    - role: updates
+    - role: logging
+    - role: integrity
+    - role: ids
+    - role: apparmor
+    - role: compliance

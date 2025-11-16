@@ -1,0 +1,51 @@
+---
+# Role: firewall
+# Enable host firewall and allow only required ports
+
+- name: Ensure ufw is installed (Ubuntu)
+  apt:
+    name: ufw
+    state: present
+    update_cache: yes
+  when: ansible_facts['os_family'] == 'Debian'
+
+- name: Allow SSH and required ports with ufw (Ubuntu)
+  ufw:
+    rule: allow
+    port: "{{ item }}"
+  loop: "{{ [allowed_ssh_ports | first] + (extra_allowed_ports | default([])) }}"
+  when: ansible_facts['os_family'] == 'Debian'
+
+- name: Deny all other incoming connections with ufw (Ubuntu)
+  ufw:
+    state: enabled
+    policy: deny
+    direction: incoming
+  when: ansible_facts['os_family'] == 'Debian'
+
+- name: Ensure firewalld is installed and running (SUSE)
+  zypper:
+    name: firewalld
+    state: present
+  when: ansible_facts['os_family'] == 'Suse'
+
+- name: Enable and start firewalld (SUSE)
+  service:
+    name: firewalld
+    state: started
+    enabled: yes
+  when: ansible_facts['os_family'] == 'Suse'
+
+- name: Allow needed ports in firewalld (SUSE)
+  firewalld:
+    port: "{{ item }}/tcp"
+    permanent: yes
+    immediate: yes
+    state: enabled
+  loop: "{{ [allowed_ssh_ports | first] + (extra_allowed_ports | default([])) }}"
+  when: ansible_facts['os_family'] == 'Suse'
+
+- name: Ensure default zone drops other traffic (SUSE)
+  command: firewall-cmd --set-default-zone=drop
+  when: ansible_facts['os_family'] == 'Suse'
+  changed_when: true

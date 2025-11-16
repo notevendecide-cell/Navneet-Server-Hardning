@@ -1,0 +1,107 @@
+---
+# Role: user_access
+# Hardens SSH, password policies, and sudoers configuration
+
+- name: Ensure required packages for password quality are present (Ubuntu)
+  apt:
+    name:
+      - libpam-pwquality
+    state: present
+    update_cache: yes
+  when: ansible_facts['os_family'] == 'Debian'
+
+- name: Ensure required packages for password quality are present (SUSE)
+  zypper:
+    name:
+      - libpwquality-tools
+      - libpwquality1
+    state: present
+  when: ansible_facts['os_family'] == 'Suse'
+
+- name: Ensure OpenSSH server is installed (Ubuntu)
+  apt:
+    name: openssh-server
+    state: present
+    update_cache: yes
+  when: ansible_facts['os_family'] == 'Debian'
+
+- name: Ensure OpenSSH server is installed (SUSE)
+  zypper:
+    name: openssh
+    state: present
+  when: ansible_facts['os_family'] == 'Suse'
+
+- name: Configure pwquality (password complexity)
+  blockinfile:
+    path: /etc/security/pwquality.conf
+    create: yes
+    block: |
+      minlen = 12
+      dcredit = -1
+      ucredit = -1
+      lcredit = -1
+      ocredit = -1
+      maxrepeat = 3
+      minclass = 3
+      dictcheck = 1
+      retry = 3
+  notify: Restart sshd
+
+- name: Lock root account (disable root password login at OS level)
+  user:
+    name: root
+    password_lock: yes
+  when: lock_root_account | bool
+
+- name: Ensure SSH configuration is hardened
+  lineinfile:
+    path: "/etc/ssh/sshd_config"
+    regexp: "^#?{{ item.key }}"
+    line: "{{ item.key }} {{ item.value }}"
+    create: yes
+    state: present
+    backrefs: no
+  loop:
+    - { key: 'PermitRootLogin', value: 'no' }
+    - { key: 'PasswordAuthentication', value: '{{ "no" if disable_password_authentication else "yes" }}' }
+    - { key: 'PermitEmptyPasswords', value: 'no' }
+    - { key: 'ChallengeResponseAuthentication', value: 'no' }
+    - { key: 'MaxAuthTries', value: '4' }
+    - { key: 'LoginGraceTime', value: '30' }
+    - { key: 'ClientAliveInterval', value: '300' }
+    - { key: 'ClientAliveCountMax', value: '2' }
+    - { key: 'UsePAM', value: 'yes' }
+    - { key: 'X11Forwarding', value: 'no' }
+    - { key: 'AllowTcpForwarding', value: 'no' }
+  notify: Restart sshd
+
+- name: Restrict SSH to specific ports
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?Port '
+    line: 'Port {{ allowed_ssh_ports | first }}'
+    state: present
+    create: yes
+  notify: Restart sshd
+
+- name: Ensure sudoers hardening file exists
+  copy:
+    dest: /etc/sudoers.d/99-hardening
+    content: |
+      Defaults use_pty
+      Defaults timestamp_timeout=5
+      Defaults passwd_tries=3
+      Defaults logfile="/var/log/sudo.log"
+      Defaults requiretty
+    owner: root
+    group: root
+    mode: '0440'
+    validate: 'visudo -cf %s'
+
+- name: Ensure sudo log file exists
+  file:
+    path: /var/log/sudo.log
+    state: touch
+    owner: root
+    group: root
+    mode: '0600'
